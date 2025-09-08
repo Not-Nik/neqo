@@ -11,7 +11,11 @@
 // a different version of init_db.  That causes explosions as they get
 // different versions of the Once instance they use and they initialize NSS
 // twice, probably likely in parallel.  That doesn't work out well.
-use neqo_crypto::{assert_initialized, init_db};
+use neqo_crypto::assert_initialized;
+#[cfg(nss_nodb)]
+use neqo_crypto::init;
+#[cfg(not(nss_nodb))]
+use neqo_crypto::init_db;
 
 // Pull in the NSS internals so that we can ask NSS if it thinks that
 // it is properly initialized.
@@ -21,6 +25,7 @@ use neqo_crypto::{assert_initialized, init_db};
     reason = "Code is bindgen-generated."
 )]
 mod nss {
+    use neqo_crypto::nss_prelude::*;
     include!(concat!(env!("OUT_DIR"), "/nss_init.rs"));
 }
 
