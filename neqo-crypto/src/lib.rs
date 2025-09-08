@@ -4,7 +4,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-mod aead;
+#![cfg_attr(feature = "deny-warnings", deny(warnings))]
+#![warn(clippy::pedantic)]
+// Bindgen auto generated code
+// won't adhere to the clippy rules below
+#![allow(clippy::borrow_as_ptr)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::unseparated_literal_suffix)]
+#![allow(clippy::used_underscore_binding)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_safety_doc)]
+
 #[cfg(feature = "disable-encryption")]
 pub mod aead_null;
 pub mod agent;
@@ -13,22 +24,39 @@ mod auth;
 mod cert;
 pub mod constants;
 mod ech;
+#[macro_use]
+mod util;
+#[macro_use]
 mod err;
 #[macro_use]
 mod exp;
 pub mod ext;
 pub mod hkdf;
 pub mod hp;
-#[macro_use]
-mod p11;
+
+pub mod aead;
+pub mod der;
+pub mod ec;
+pub mod hash;
+pub mod hmac;
+pub mod p11;
 mod prio;
 mod replay;
 mod secrets;
 pub mod selfencrypt;
 mod ssl;
-mod time;
+pub mod time;
 
-use std::{env, ffi::CString, path::PathBuf, ptr::null, sync::OnceLock};
+use std::{
+    convert::TryFrom,
+    env,
+    ffi::CString,
+    path::{Path, PathBuf},
+    ptr::null,
+};
+
+use log::error;
+use once_cell::sync::OnceCell;
 
 #[cfg(not(feature = "disable-encryption"))]
 pub use self::aead::RealAead as Aead;
@@ -48,32 +76,48 @@ pub use self::{
         encode_config as encode_ech_config, generate_keys as generate_ech_keys, AeadId, KdfId,
         KemId, SymmetricSuite,
     },
-    err::{Error, PRErrorCode, Res},
+    err::{secstatus_to_res, Error, IntoResult, PRErrorCode, Res},
     ext::{ExtensionHandler, ExtensionHandlerResult, ExtensionWriterResult},
     p11::{random, randomize, PrivateKey, PublicKey, SymKey},
     replay::AntiReplay,
     secrets::SecretDirection,
     ssl::Opt,
+    util::*,
 };
 
 mod min_version;
 use min_version::MINIMUM_NSS_VERSION;
-use neqo_common::qerror;
+
+#[expect(non_snake_case)]
+#[expect(non_upper_case_globals)]
+pub mod nss_prelude {
+    pub use _SECStatus::*;
+
+    pub use crate::prtypes::*;
+    include!(concat!(env!("OUT_DIR"), "/nss_prelude.rs"));
+}
+pub use nss_prelude::{SECItem, SECItemArray, SECItemType, SECStatus};
 
 #[expect(non_upper_case_globals, reason = "Code is bindgen-generated.")]
 mod nss {
+    use crate::nss_prelude::*;
     include!(concat!(env!("OUT_DIR"), "/nss_init.rs"));
 }
 
-// Need to map the types through.
-fn secstatus_to_res(code: nss::SECStatus) -> Res<()> {
-    err::secstatus_to_res(code)
-}
+pub mod prtypes;
+pub use prtypes::*;
+
+// Shadow these bindgen created values to correct their type.
+#[expect(clippy::cast_possible_wrap)]
+pub const PR_FALSE: PRBool = prtypes::PR_FALSE as PRBool;
+#[expect(clippy::cast_possible_wrap)]
+pub const PR_TRUE: PRBool = prtypes::PR_TRUE as PRBool;
 
 enum NssLoaded {
     External,
     NoDb,
-    Db,
+    #[expect(dead_code)]
+    Db(Box<Path>),
 }
 
 impl Drop for NssLoaded {
@@ -86,12 +130,12 @@ impl Drop for NssLoaded {
     }
 }
 
-static INITIALIZED: OnceLock<Res<NssLoaded>> = OnceLock::new();
+static INITIALIZED: OnceCell<Res<NssLoaded>> = OnceCell::new();
 
 fn version_check() -> Res<()> {
     let min_ver = CString::new(MINIMUM_NSS_VERSION)?;
     if unsafe { nss::NSS_VersionCheck(min_ver.as_ptr()) } == 0 {
-        qerror!("Minimum NSS version of {MINIMUM_NSS_VERSION} not supported");
+        error!("Minimum NSS version of {MINIMUM_NSS_VERSION} not supported");
         return Err(Error::UnsupportedVersion);
     }
     Ok(())
@@ -136,7 +180,7 @@ fn init_once(db: Option<PathBuf>) -> Res<NssLoaded> {
         secstatus_to_res(unsafe {
             ssl::SSL_ConfigServerSessionIDCache(1024, 0, 0, dircstr.as_ptr())
         })?;
-        NssLoaded::Db
+        NssLoaded::Db(path.into_boxed_path())
     } else {
         secstatus_to_res(unsafe { nss::NSS_NoDB_Init(null()) })?;
         NssLoaded::NoDb

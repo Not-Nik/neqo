@@ -10,17 +10,20 @@
 )]
 
 use std::{
+    convert::{TryFrom as _, TryInto as _},
     ops::Deref,
     os::raw::c_void,
     pin::Pin,
-    sync::OnceLock,
     time::{Duration, Instant},
 };
 
+use once_cell::sync::OnceCell;
+
 use crate::{
-    agentio::as_c_void,
     err::{Error, Res},
-    ssl::{PRFileDesc, SSLTimeFunc},
+    nss_prelude::PRInt64,
+    prio::PRFileDesc,
+    ssl::SSLTimeFunc,
 };
 
 include!(concat!(env!("OUT_DIR"), "/nspr_time.rs"));
@@ -68,7 +71,7 @@ impl TimeZero {
     }
 }
 
-static BASE_TIME: OnceLock<TimeZero> = OnceLock::new();
+static BASE_TIME: OnceCell<TimeZero> = OnceCell::new();
 
 fn get_base() -> &'static TimeZero {
     BASE_TIME.get_or_init(|| TimeZero {
@@ -97,7 +100,7 @@ impl Deref for Time {
 impl From<Instant> for Time {
     /// Convert from an Instant into a Time.
     fn from(t: Instant) -> Self {
-        // Initialize `BASE_TIME` using `TimeZero::baseline(t)`.
+        // Call `TimeZero::baseline(t)` so that time zero can be set.
         BASE_TIME.get_or_init(|| TimeZero::baseline(t));
         Self { t }
     }
@@ -187,8 +190,19 @@ impl TimeHolder {
         *p.as_ref().unwrap()
     }
 
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        clippy::ptr_as_ptr,
+        clippy::ref_as_ptr
+    )]
     pub fn bind(&mut self, fd: *mut PRFileDesc) -> Res<()> {
-        unsafe { SSL_SetTimeFunc(fd, Some(Self::time_func), as_c_void(&mut self.t)) }
+        unsafe {
+            SSL_SetTimeFunc(
+                fd,
+                Some(Self::time_func),
+                &mut *self.t as *mut _ as *mut c_void,
+            )
+        }
     }
 
     pub fn set(&mut self, t: Instant) -> Res<()> {
@@ -205,7 +219,10 @@ impl Default for TimeHolder {
 
 #[cfg(test)]
 mod test {
-    use std::time::{Duration, Instant};
+    use std::{
+        convert::{TryFrom as _, TryInto as _},
+        time::{Duration, Instant},
+    };
 
     use super::{get_base, init, Interval, PRTime, Time};
     use crate::err::Res;

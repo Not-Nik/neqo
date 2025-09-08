@@ -4,80 +4,78 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(
+    dead_code,
+    non_upper_case_globals,
+    non_camel_case_types,
+    non_snake_case,
+    clippy::unwrap_used
+)]
 use std::{
     cell::RefCell,
+    convert::TryFrom as _,
     fmt::{self, Debug, Formatter},
-    ops::Deref,
     os::raw::c_uint,
     ptr::null_mut,
-    slice::Iter as SliceIter,
 };
 
-use neqo_common::hex_with_len;
+use pkcs11_bindings::{CKA_EC_POINT, CKA_VALUE};
 
 use crate::{
     err::{secstatus_to_res, Error, Res},
-    null_safe_slice,
+    nss_prelude::SECITEM_FreeItem,
+    util::SECItemMut,
 };
 
-#[expect(
-    dead_code,
-    non_snake_case,
-    non_upper_case_globals,
-    non_camel_case_types,
-    clippy::unreadable_literal,
-    reason = "For included bindgen code."
-)]
+#[must_use]
+pub fn hex_with_len(buf: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write as _;
+    let buf = buf.as_ref();
+    let mut ret = String::with_capacity(10 + buf.len() * 2);
+    write!(&mut ret, "[{}]: ", buf.len()).unwrap();
+    for b in buf {
+        write!(&mut ret, "{b:02x}").unwrap();
+    }
+    ret
+}
+
 mod nss_p11 {
+    #![allow(
+        non_snake_case,
+        non_upper_case_globals,
+        non_camel_case_types,
+        clippy::all,
+        clippy::nursery,
+        clippy::pedantic,
+        clippy::restriction,
+        reason = "For included bindgen code."
+    )]
+    use crate::{
+        nss_prelude::*,
+        prtypes::{PRBool, PRInt32, PRUint32, PRUint8, PRUword},
+    };
     include!(concat!(env!("OUT_DIR"), "/nss_p11.rs"));
 }
 
 pub use nss_p11::*;
 
-#[macro_export]
-macro_rules! scoped_ptr {
-    ($scoped:ident, $target:ty, $dtor:path) => {
-        pub struct $scoped {
-            ptr: *mut $target,
-        }
+use crate::{null_safe_slice, prtypes::PRBool};
 
-        impl $scoped {
-            /// Create a new instance of `$scoped` from a pointer.
-            ///
-            /// # Errors
-            ///
-            /// When passed a null pointer generates an error.
-            #[allow(
-                clippy::allow_attributes,
-                dead_code,
-                reason = "False positive; is used in code calling the macro."
-            )]
-            pub fn from_ptr(ptr: *mut $target) -> Result<Self, $crate::err::Error> {
-                if ptr.is_null() {
-                    Err($crate::err::Error::last_nss_error())
-                } else {
-                    Ok(Self { ptr })
-                }
-            }
-        }
-
-        impl Deref for $scoped {
-            type Target = *mut $target;
-            fn deref(&self) -> &*mut $target {
-                &self.ptr
-            }
-        }
-
-        impl Drop for $scoped {
-            fn drop(&mut self) {
-                unsafe { _ = $dtor(self.ptr) };
-            }
-        }
-    };
-}
+// Shadow these bindgen created values to correct their type.
+pub const SHA256_LENGTH: usize = nss_p11::SHA256_LENGTH as usize;
+pub const AES_BLOCK_SIZE: usize = nss_p11::AES_BLOCK_SIZE as usize;
 
 scoped_ptr!(Certificate, CERTCertificate, CERT_DestroyCertificate);
+scoped_ptr!(CertList, CERTCertList, CERT_DestroyCertList);
+
+scoped_ptr!(
+    SubjectPublicKeyInfo,
+    CERTSubjectPublicKeyInfo,
+    SECKEY_DestroySubjectPublicKeyInfo
+);
+
 scoped_ptr!(PublicKey, SECKEYPublicKey, SECKEY_DestroyPublicKey);
+impl_clone!(PublicKey, SECKEY_CopyPublicKey);
 
 impl PublicKey {
     /// Get the HPKE serialization of the public key.
@@ -97,19 +95,24 @@ impl PublicKey {
                 **self,
                 buf.as_mut_ptr(),
                 &mut len,
-                c_uint::try_from(buf.len())?,
+                c_uint::try_from(buf.len()).map_err(|_| Error::IntegerOverflow)?,
             )
         })?;
-        buf.truncate(usize::try_from(len)?);
+        buf.truncate(usize::try_from(len).map_err(|_| Error::IntegerOverflow)?);
         Ok(buf)
     }
-}
 
-impl Clone for PublicKey {
-    fn clone(&self) -> Self {
-        let ptr = unsafe { SECKEY_CopyPublicKey(self.ptr) };
-        assert!(!ptr.is_null());
-        Self { ptr }
+    pub fn key_data_alt(&self) -> Res<Vec<u8>> {
+        let mut key_item = SECItemMut::make_empty();
+        secstatus_to_res(unsafe {
+            PK11_ReadRawAttribute(
+                PK11ObjectType::PK11_TypePubKey,
+                (**self).cast(),
+                CKA_EC_POINT,
+                key_item.as_mut(),
+            )
+        })?;
+        Ok(key_item.as_slice().to_owned())
     }
 }
 
@@ -124,6 +127,7 @@ impl Debug for PublicKey {
 }
 
 scoped_ptr!(PrivateKey, SECKEYPrivateKey, SECKEY_DestroyPrivateKey);
+impl_clone!(PrivateKey, SECKEY_CopyPrivateKey);
 
 impl PrivateKey {
     /// Get the bits of the private key.
@@ -137,35 +141,27 @@ impl PrivateKey {
     ///
     /// When the values are too large to fit.  So never.
     pub fn key_data(&self) -> Res<Vec<u8>> {
-        let mut key_item = Item::make_empty();
+        let mut key_item = SECItemMut::make_empty();
         secstatus_to_res(unsafe {
             PK11_ReadRawAttribute(
                 PK11ObjectType::PK11_TypePrivKey,
                 (**self).cast(),
-                CK_ATTRIBUTE_TYPE::from(CKA_VALUE),
-                &mut key_item,
+                CKA_VALUE,
+                key_item.as_mut(),
             )
         })?;
-        let slc = unsafe { null_safe_slice(key_item.data, key_item.len) };
+        let slc = unsafe { null_safe_slice(key_item.as_ref().data, key_item.as_ref().len) };
         let key = Vec::from(slc);
         // The data that `key_item` refers to needs to be freed, but we can't
         // use the scoped `Item` implementation.  This is OK as long as nothing
         // panics between `PK11_ReadRawAttribute` succeeding and here.
         unsafe {
-            SECITEM_FreeItem(&mut key_item, PRBool::from(false));
+            SECITEM_FreeItem(key_item.as_mut(), PRBool::from(false));
         }
         Ok(key)
     }
 }
 unsafe impl Send for PrivateKey {}
-
-impl Clone for PrivateKey {
-    fn clone(&self) -> Self {
-        let ptr = unsafe { SECKEY_CopyPrivateKey(self.ptr) };
-        assert!(!ptr.is_null());
-        Self { ptr }
-    }
-}
 
 impl Debug for PrivateKey {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -181,12 +177,13 @@ scoped_ptr!(Slot, PK11SlotInfo, PK11_FreeSlot);
 
 impl Slot {
     pub fn internal() -> Res<Self> {
-        let p = unsafe { PK11_GetInternalSlot() };
-        Self::from_ptr(p)
+        unsafe { Self::from_ptr(PK11_GetInternalSlot()) }
     }
 }
 
+// Note: PK11SymKey is internally reference counted
 scoped_ptr!(SymKey, PK11SymKey, PK11_FreeSymKey);
+impl_clone!(SymKey, PK11_ReferenceSymKey);
 
 impl SymKey {
     /// You really don't want to use this.
@@ -194,29 +191,25 @@ impl SymKey {
     /// # Errors
     ///
     /// Internal errors in case of failures in NSS.
-    pub fn as_bytes(&self) -> Res<&[u8]> {
-        secstatus_to_res(unsafe { PK11_ExtractKeyValue(self.ptr) })?;
+    pub fn key_data(&self) -> Res<&[u8]> {
+        secstatus_to_res(unsafe { PK11_ExtractKeyValue(**self) })?;
 
-        let key_item = unsafe { PK11_GetKeyData(self.ptr) };
+        let key_item = unsafe { PK11_GetKeyData(**self) };
         // This is accessing a value attached to the key, so we can treat this as a borrow.
         match unsafe { key_item.as_mut() } {
             None => Err(Error::Internal),
             Some(key) => Ok(unsafe { null_safe_slice(key.data, key.len) }),
         }
     }
-}
 
-impl Clone for SymKey {
-    fn clone(&self) -> Self {
-        let ptr = unsafe { PK11_ReferenceSymKey(self.ptr) };
-        assert!(!ptr.is_null());
-        Self { ptr }
+    pub fn as_bytes(&self) -> Res<&[u8]> {
+        self.key_data()
     }
 }
 
 impl Debug for SymKey {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if let Ok(b) = self.as_bytes() {
+        if let Ok(b) = self.key_data() {
             write!(f, "SymKey {}", hex_with_len(b))
         } else {
             write!(f, "Opaque SymKey")
@@ -234,85 +227,6 @@ unsafe fn destroy_pk11_context(ctxt: *mut PK11Context) {
     PK11_DestroyContext(ctxt, PRBool::from(true));
 }
 scoped_ptr!(Context, PK11Context, destroy_pk11_context);
-
-unsafe fn destroy_secitem(item: *mut SECItem) {
-    SECITEM_FreeItem(item, PRBool::from(true));
-}
-scoped_ptr!(Item, SECItem, destroy_secitem);
-
-impl AsRef<[u8]> for SECItem {
-    fn as_ref(&self) -> &[u8] {
-        unsafe { null_safe_slice(self.data, self.len) }
-    }
-}
-
-impl Item {
-    /// Create a wrapper for a slice of this object.
-    /// Creating this object is technically safe, but using it is extremely dangerous.
-    /// Minimally, it can only be passed as a `const SECItem*` argument to functions,
-    /// or those that treat their argument as `const`.
-    pub fn wrap(buf: &[u8]) -> Res<SECItem> {
-        Ok(SECItem {
-            type_: SECItemType::siBuffer,
-            data: buf.as_ptr().cast_mut(),
-            len: c_uint::try_from(buf.len())?,
-        })
-    }
-
-    /// Create a wrapper for a struct.
-    /// Creating this object is technically safe, but using it is extremely dangerous.
-    /// Minimally, it can only be passed as a `const SECItem*` argument to functions,
-    /// or those that treat their argument as `const`.
-    pub fn wrap_struct<T>(v: &T) -> Res<SECItem> {
-        let data: *const T = v;
-        Ok(SECItem {
-            type_: SECItemType::siBuffer,
-            data: data.cast_mut().cast(),
-            len: c_uint::try_from(size_of::<T>())?,
-        })
-    }
-
-    /// Make an empty `SECItem` for passing as a mutable `SECItem*` argument.
-    pub const fn make_empty() -> SECItem {
-        SECItem {
-            type_: SECItemType::siBuffer,
-            data: null_mut(),
-            len: 0,
-        }
-    }
-}
-
-unsafe fn destroy_secitem_array(array: *mut SECItemArray) {
-    SECITEM_FreeArray(array, PRBool::from(true));
-}
-scoped_ptr!(ItemArray, SECItemArray, destroy_secitem_array);
-
-impl<'a> IntoIterator for &'a ItemArray {
-    type Item = &'a [u8];
-    type IntoIter = ItemArrayIterator<'a>;
-    fn into_iter(self) -> Self::IntoIter {
-        Self::IntoIter {
-            iter: AsRef::<[SECItem]>::as_ref(self).iter(),
-        }
-    }
-}
-
-impl AsRef<[SECItem]> for ItemArray {
-    fn as_ref(&self) -> &[SECItem] {
-        unsafe { null_safe_slice((*self.ptr).items, (*self.ptr).len) }
-    }
-}
-
-pub struct ItemArrayIterator<'a> {
-    iter: SliceIter<'a, SECItem>,
-}
-
-impl<'a> Iterator for ItemArrayIterator<'a> {
-    type Item = &'a [u8];
-    fn next(&mut self) -> Option<&'a [u8]> {
-        self.iter.next().map(AsRef::<[u8]>::as_ref)
-    }
-}
 
 #[cfg(feature = "disable-random")]
 thread_local! {
@@ -394,6 +308,8 @@ pub fn random<const N: usize>() -> [u8; N] {
         randomize(buf)
     }
 }
+
+impl_into_result!(SECOidData);
 
 #[cfg(test)]
 mod test {

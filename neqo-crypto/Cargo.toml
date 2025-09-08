@@ -18,14 +18,15 @@ workspace = true
 [dependencies]
 enum-map = { workspace = true }
 log = { workspace = true }
-neqo-common = { path = "../neqo-common" }
 strum = { workspace = true}
 thiserror = { workspace = true }
+pkcs11-bindings = { workspace = true }
+once_cell = { workspace = true }
 
 [build-dependencies]
 bindgen = { version = "0.69", default-features = false, features = ["runtime"] }
 mozbuild = { version = "0.1", default-features = false, optional = true }
-semver = { version = "1.0", default-features = false }
+semver = { version = "1.0", default-features = false, features = ["std"] }
 serde = { version = "1.0", default-features = false }
 serde_derive = { version = "1.0", default-features = false }
 toml = { version = "0.5", default-features = false }
@@ -38,6 +39,7 @@ ignored = ["bindgen", "semver", "serde", "serde_derive", "toml"]
 
 [features]
 bench = []
+deny-warnings = []  
 disable-encryption = []
 disable-random = []
 gecko = ["mozbuild"]

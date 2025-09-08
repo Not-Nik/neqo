@@ -4,9 +4,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::mem;
+use std::{fmt::Write as _, io::Write as _, mem};
 
-use neqo_common::{hex, qinfo, qtrace, Encoder};
+use log::{info, trace};
 
 use crate::{
     constants::{Cipher, Version},
@@ -15,6 +15,15 @@ use crate::{
     p11::{random, SymKey},
     Aead,
 };
+
+#[must_use]
+pub fn hex<A: AsRef<[u8]>>(buf: A) -> String {
+    let mut ret = String::with_capacity(buf.as_ref().len() * 2);
+    for b in buf.as_ref() {
+        write!(&mut ret, "{b:02x}").expect("write OK");
+    }
+    ret
+}
 
 #[derive(Debug)]
 pub struct SelfEncrypt {
@@ -61,7 +70,7 @@ impl SelfEncrypt {
         self.old_key = Some(mem::replace(&mut self.key, new_key));
         let (kid, _) = self.key_id.overflowing_add(1);
         self.key_id = kid;
-        qinfo!("[SelfEncrypt] Rotated keys to {}", self.key_id);
+        info!("[SelfEncrypt] Rotated keys to {}", self.key_id);
         Ok(())
     }
 
@@ -86,19 +95,24 @@ impl SelfEncrypt {
         let cipher = self.make_aead(&self.key, &salt)?;
         let encoded_len = 2 + salt.len() + plaintext.len() + Aead::expansion();
 
-        let mut enc = Encoder::with_capacity(encoded_len);
-        enc.encode_byte(Self::VERSION);
-        enc.encode_byte(self.key_id);
-        enc.encode(&salt);
+        let mut enc = Vec::<u8>::with_capacity(encoded_len);
+        enc.write_all(&[Self::VERSION])
+            .unwrap_or_else(|_| unreachable!("Buffer has enough capacity."));
+        enc.write_all(&[self.key_id])
+            .unwrap_or_else(|_| unreachable!("Buffer has enough capacity."));
+        enc.write_all(&salt)
+            .unwrap_or_else(|_| unreachable!("Buffer has enough capacity."));
 
         let mut extended_aad = enc.clone();
-        extended_aad.encode(aad);
+        extended_aad
+            .write_all(aad)
+            .unwrap_or_else(|_| unreachable!("Buffer has enough capacity."));
 
         let offset = enc.len();
-        let mut output: Vec<u8> = enc.into();
+        let mut output: Vec<u8> = enc;
         output.resize(encoded_len, 0);
         cipher.encrypt(0, extended_aad.as_ref(), plaintext, &mut output[offset..])?;
-        qtrace!(
+        trace!(
             "[SelfEncrypt] seal {} {} -> {}",
             hex(aad),
             hex(plaintext),
@@ -136,9 +150,13 @@ impl SelfEncrypt {
         };
         let offset = 2 + Self::SALT_LENGTH;
 
-        let mut extended_aad = Encoder::with_capacity(offset + aad.len());
-        extended_aad.encode(&ciphertext[0..offset]);
-        extended_aad.encode(aad);
+        let mut extended_aad = Vec::<u8>::with_capacity(offset + aad.len());
+        extended_aad
+            .write_all(&ciphertext[0..offset])
+            .unwrap_or_else(|_| unreachable!("Buffer has enough capacity."));
+        extended_aad
+            .write_all(aad)
+            .unwrap_or_else(|_| unreachable!("Buffer has enough capacity."));
 
         let aead = self.make_aead(key, &ciphertext[2..offset])?;
         // NSS insists on having extra space available for decryption.
@@ -148,7 +166,7 @@ impl SelfEncrypt {
             aead.decrypt(0, extended_aad.as_ref(), &ciphertext[offset..], &mut output)?;
         let final_len = decrypted.len();
         output.truncate(final_len);
-        qtrace!(
+        trace!(
             "[SelfEncrypt] open {} {} -> {}",
             hex(aad),
             hex(ciphertext),

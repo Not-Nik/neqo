@@ -11,8 +11,9 @@
 
 use std::{
     cell::RefCell,
+    convert::{TryFrom as _, TryInto as _},
     ffi::{CStr, CString},
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter, Write as _},
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     os::raw::{c_uint, c_void},
@@ -23,7 +24,7 @@ use std::{
     time::Instant,
 };
 
-use neqo_common::{hex_snip_middle, hex_with_len, qdebug, qtrace, qwarn};
+use log::{debug, info, trace, warn};
 
 pub use crate::{
     agentio::{as_c_void, Record, RecordList},
@@ -39,29 +40,29 @@ use crate::{
     ech,
     err::{is_blocked, secstatus_to_res, Error, PRErrorCode, Res},
     ext::{ExtensionHandler, ExtensionTracker, SSL_CallExtensionWriterOnEchInner},
+    nss_prelude::{SECItemStr, SECWouldBlock},
     null_safe_slice,
-    p11::{self, PrivateKey, PublicKey},
+    p11::{self, hex_with_len, PrivateKey, PublicKey},
     prio,
+    prtypes::PRBool,
     replay::AntiReplay,
     secrets::SecretHolder,
-    ssl::{self, PRBool},
+    ssl,
     time::{Time, TimeHolder},
+    SECItem, SECStatus,
 };
 
 /// Private trait for Certificate Compression implementation
 /// Use `SafeCertCompression` to implement an encoder/decoder instead.
 trait UnsafeCertCompression {
     extern "C" fn decode_callback(
-        input: *const ssl::SECItem,
+        input: *const SECItem,
         output: *mut ::std::os::raw::c_uchar,
         output_len: usize,
         used_len: *mut usize,
-    ) -> ssl::SECStatus;
+    ) -> SECStatus;
 
-    extern "C" fn encode_callback(
-        input: *const ssl::SECItem,
-        output: *mut ssl::SECItem,
-    ) -> ssl::SECStatus;
+    extern "C" fn encode_callback(input: *const SECItem, output: *mut SECItem) -> SECStatus;
 }
 
 /// The trait is used to represent a certificate compression data structure
@@ -104,11 +105,11 @@ pub trait CertificateCompressor {
 /// functions using the NSS types
 impl<T: CertificateCompressor> UnsafeCertCompression for T {
     extern "C" fn decode_callback(
-        input: *const ssl::SECItem,
+        input: *const SECItem,
         output: *mut ::std::os::raw::c_uchar,
         output_len: usize,
         used_len: *mut usize,
-    ) -> ssl::SECStatus {
+    ) -> SECStatus {
         let Some(input) = NonNull::new(input.cast_mut()) else {
             return ssl::SECFailure;
         };
@@ -129,10 +130,7 @@ impl<T: CertificateCompressor> UnsafeCertCompression for T {
         ssl::SECSuccess
     }
 
-    extern "C" fn encode_callback(
-        input: *const ssl::SECItem,
-        output: *mut ssl::SECItem,
-    ) -> ssl::SECStatus {
+    extern "C" fn encode_callback(input: *const SECItem, output: *mut SECItem) -> SECStatus {
         let Some(input) = NonNull::new(input.cast_mut()) else {
             return ssl::SECFailure;
         };
@@ -151,7 +149,7 @@ impl<T: CertificateCompressor> UnsafeCertCompression for T {
             p11::SECITEM_AllocItem(
                 null_mut(),
                 // p11::SECItem is the same as ssl::SECItem
-                output.cast::<p11::SECItemStr>(),
+                output.cast::<SECItemStr>(),
                 // Compression shouldn't make the thing *longer*,
                 // but allocate one extra byte anyway to enable simple testing modes.
                 input_len + 1,
@@ -190,6 +188,26 @@ impl<T: CertificateCompressor> UnsafeCertCompression for T {
 /// The maximum number of tickets to remember for a given connection.
 const MAX_TICKETS: usize = 4;
 
+#[must_use]
+pub fn hex_snip_middle<A: AsRef<[u8]>>(buf: A) -> String {
+    const SHOW_LEN: usize = 8;
+    let buf = buf.as_ref();
+    if buf.len() <= SHOW_LEN * 2 {
+        hex_with_len(buf)
+    } else {
+        let mut ret = String::with_capacity(SHOW_LEN * 2 + 16);
+        write!(&mut ret, "[{}]: ", buf.len()).expect("write OK");
+        for b in &buf[..SHOW_LEN] {
+            write!(&mut ret, "{b:02x}").expect("write OK");
+        }
+        ret.push_str("..");
+        for b in &buf[buf.len() - SHOW_LEN..] {
+            write!(&mut ret, "{b:02x}").expect("write OK");
+        }
+        ret
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HandshakeState {
     New,
@@ -224,7 +242,7 @@ impl HandshakeState {
     }
 }
 
-fn get_alpn(fd: *mut ssl::PRFileDesc, pre: bool) -> Res<Option<String>> {
+fn get_alpn(fd: *mut prio::PRFileDesc, pre: bool) -> Res<Option<String>> {
     let mut alpn_state = ssl::SSLNextProtoState::SSL_NEXT_PROTO_NO_SUPPORT;
     let mut chosen = vec![0_u8; 255];
     let mut chosen_len: c_uint = 0;
@@ -253,7 +271,7 @@ fn get_alpn(fd: *mut ssl::PRFileDesc, pre: bool) -> Res<Option<String>> {
         }
         _ => None,
     };
-    qtrace!("[{fd:p}] got ALPN {alpn:?}");
+    trace!("[{fd:p}] got ALPN {alpn:?}");
     Ok(alpn)
 }
 
@@ -270,7 +288,7 @@ macro_rules! preinfo_arg {
                 0 => None,
                 _ => Some(
                     <$t>::try_from(self.info.$f)
-                        .inspect_err(|e| qdebug!("Invalid value in preinfo: {e:?}"))
+                        .inspect_err(|e| debug!("Invalid value in preinfo: {e:?}"))
                         .ok()?,
                 ),
             }
@@ -279,7 +297,7 @@ macro_rules! preinfo_arg {
 }
 
 impl SecretAgentPreInfo {
-    fn new(fd: *mut ssl::PRFileDesc) -> Res<Self> {
+    fn new(fd: *mut prio::PRFileDesc) -> Res<Self> {
         let mut info: MaybeUninit<ssl::SSLPreliminaryChannelInfo> = MaybeUninit::uninit();
         secstatus_to_res(unsafe {
             ssl::SSL_GetPreliminaryChannelInfo(
@@ -365,7 +383,7 @@ pub struct SecretAgentInfo {
 }
 
 impl SecretAgentInfo {
-    fn new(fd: *mut ssl::PRFileDesc) -> Res<Self> {
+    fn new(fd: *mut prio::PRFileDesc) -> Res<Self> {
         let mut info: MaybeUninit<ssl::SSLChannelInfo> = MaybeUninit::uninit();
         secstatus_to_res(unsafe {
             ssl::SSL_GetChannelInfo(
@@ -425,7 +443,7 @@ impl SecretAgentInfo {
 #[derive(Debug)]
 #[expect(clippy::module_name_repetitions, reason = "This is OK.")]
 pub struct SecretAgent {
-    fd: *mut ssl::PRFileDesc,
+    fd: *mut prio::PRFileDesc,
     secrets: SecretHolder,
     raw: Option<bool>,
     io: Pin<Box<AgentIo>>,
@@ -473,7 +491,7 @@ impl SecretAgent {
     // minimal, but it means that the two forms need casts to translate
     // between them.  ssl::PRFileDesc is left as an opaque type, as the
     // ssl::SSL_* APIs only need an opaque type.
-    fn create_fd(io: &mut Pin<Box<AgentIo>>) -> Res<*mut ssl::PRFileDesc> {
+    fn create_fd(io: &mut Pin<Box<AgentIo>>) -> Res<*mut prio::PRFileDesc> {
         assert_initialized();
         let label = CString::new("sslwrapper")?;
         let id = unsafe { prio::PR_GetUniqueIdentity(label.as_ptr()) };
@@ -497,19 +515,19 @@ impl SecretAgent {
 
     unsafe extern "C" fn auth_complete_hook(
         arg: *mut c_void,
-        _fd: *mut ssl::PRFileDesc,
+        _fd: *mut prio::PRFileDesc,
         _check_sig: PRBool,
         _is_server: PRBool,
-    ) -> ssl::SECStatus {
+    ) -> SECStatus {
         let auth_required_ptr = arg.cast::<bool>();
         *auth_required_ptr = true;
         // NSS insists on getting SECWouldBlock here rather than accepting
         // the usual combination of PR_WOULD_BLOCK_ERROR and SECFailure.
-        ssl::_SECStatus_SECWouldBlock
+        SECWouldBlock
     }
 
     unsafe extern "C" fn alert_sent_cb(
-        fd: *const ssl::PRFileDesc,
+        fd: *const prio::PRFileDesc,
         arg: *mut c_void,
         alert: *const ssl::SSLAlert,
     ) {
@@ -520,7 +538,7 @@ impl SecretAgent {
             if st.is_none() {
                 *st = Some(alert.description);
             } else {
-                qwarn!("[{fd:p}] duplicate alert {}", alert.description);
+                warn!("[{fd:p}] duplicate alert {}", alert.description);
             }
         }
     }
@@ -586,7 +604,7 @@ impl SecretAgent {
     /// If NSS can't enable or disable ciphers.
     pub fn set_ciphers(&mut self, ciphers: &[Cipher]) -> Res<()> {
         if self.state != HandshakeState::New {
-            qwarn!("[{self}] Cannot enable ciphers in state {:?}", self.state);
+            warn!("[{self}] Cannot enable ciphers in state {:?}", self.state);
             return Err(Error::Internal);
         }
 
@@ -821,7 +839,7 @@ impl SecretAgent {
     fn capture_error<T>(&mut self, res: Res<T>) -> Res<T> {
         if let Err(e) = res {
             let e = ech::convert_ech_error(self.fd, e);
-            qwarn!("[{self}] error: {e:?}");
+            warn!("[{self}] error: {e:?}");
             self.state = HandshakeState::Failed(e.clone());
             Err(e)
         } else {
@@ -846,7 +864,7 @@ impl SecretAgent {
             let info = self.capture_error(SecretAgentInfo::new(self.fd))?;
             HandshakeState::Complete(info)
         };
-        qdebug!("[{self}] state -> {:?}", self.state);
+        info!("[{self}] state -> {:?}", self.state);
         Ok(())
     }
 
@@ -906,7 +924,7 @@ impl SecretAgent {
         if let HandshakeState::Authenticated(err) = self.state {
             let result =
                 secstatus_to_res(unsafe { ssl::SSL_AuthCertificateComplete(self.fd, err) });
-            qdebug!("[{self}] SSL_AuthCertificateComplete: {result:?}");
+            debug!("[{self}] SSL_AuthCertificateComplete: {result:?}");
             // This should return SECSuccess, so don't use update_state().
             self.capture_error(result)?;
         }
@@ -1065,11 +1083,11 @@ impl Client {
     }
 
     unsafe extern "C" fn resumption_token_cb(
-        fd: *mut ssl::PRFileDesc,
+        fd: *mut prio::PRFileDesc,
         token: *const u8,
         len: c_uint,
         arg: *mut c_void,
-    ) -> ssl::SECStatus {
+    ) -> SECStatus {
         let mut info: MaybeUninit<ssl::SSLResumptionTokenInfo> = MaybeUninit::uninit();
         let Ok(info_len) = c_uint::try_from(size_of::<ssl::SSLResumptionTokenInfo>()) else {
             return ssl::SECFailure;
@@ -1079,7 +1097,7 @@ impl Client {
             // Ignore the token.
             return ssl::SECSuccess;
         }
-        let expiration_time = info.assume_init().expirationTime;
+        let expiration_time = info.assume_init_ref().expirationTime;
         if ssl::SSL_DestroyResumptionTokenInfo(info.as_mut_ptr()).is_err() {
             // Ignore the token.
             return ssl::SECSuccess;
@@ -1092,7 +1110,7 @@ impl Client {
         };
         let mut v = Vec::with_capacity(len);
         v.extend_from_slice(null_safe_slice(token, len));
-        qdebug!("[{fd:p}] Got resumption token {}", hex_snip_middle(&v));
+        info!("[{fd:p}] Got resumption token {}", hex_snip_middle(&v));
 
         if resumption.len() >= MAX_TICKETS {
             resumption.remove(0);
@@ -1162,7 +1180,7 @@ impl Client {
     /// Error returned when the configuration is invalid.
     pub fn enable_ech<A: AsRef<[u8]>>(&mut self, ech_config_list: A) -> Res<()> {
         let config = ech_config_list.as_ref();
-        qdebug!("[{self}] Enable ECH for a server: {}", hex_with_len(config));
+        debug!("[{self}] Enable ECH for a server: {}", hex_with_len(config));
         self.ech_config = Vec::from(config);
         if config.is_empty() {
             unsafe { ech::SSL_EnableTls13GreaseEch(self.agent.fd, PRBool::from(true)) }
@@ -1231,7 +1249,7 @@ pub trait ZeroRttChecker: Debug + Unpin {
 pub struct AllowZeroRtt {}
 impl ZeroRttChecker for AllowZeroRtt {
     fn check(&self, _token: &[u8]) -> ZeroRttCheckResult {
-        qwarn!("AllowZeroRtt accepting 0-RTT");
+        warn!("AllowZeroRtt accepting 0-RTT");
         ZeroRttCheckResult::Accept
     }
 }
@@ -1268,11 +1286,11 @@ impl Server {
         for n in certificates {
             let c = CString::new(n.as_ref())?;
             let cert_ptr = unsafe { p11::PK11_FindCertFromNickname(c.as_ptr(), null_mut()) };
-            let Ok(cert) = p11::Certificate::from_ptr(cert_ptr) else {
+            let Ok(cert) = (unsafe { p11::Certificate::from_ptr(cert_ptr) }) else {
                 return Err(Error::CertificateLoading);
             };
             let key_ptr = unsafe { p11::PK11_FindKeyByAnyCert(*cert, null_mut()) };
-            let Ok(key) = PrivateKey::from_ptr(key_ptr) else {
+            let Ok(key) = (unsafe { PrivateKey::from_ptr(key_ptr) }) else {
                 return Err(Error::CertificateLoading);
             };
             secstatus_to_res(unsafe {
@@ -1379,7 +1397,7 @@ impl Server {
         pk: &PublicKey,
     ) -> Res<()> {
         let cfg = ech::encode_config(config, public_name, pk)?;
-        qdebug!("[{self}] Enable ECH for a server: {}", hex_with_len(&cfg));
+        debug!("[{self}] Enable ECH for a server: {}", hex_with_len(&cfg));
         unsafe {
             ech::SSL_SetServerEchConfigs(
                 self.agent.fd,

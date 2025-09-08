@@ -4,30 +4,43 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(
-    clippy::allow_attributes,
-    dead_code,
-    non_upper_case_globals,
-    non_snake_case,
-    clippy::cognitive_complexity,
-    clippy::too_many_lines,
-    reason = "For included bindgen code."
-)]
-
 use std::os::raw::{c_uint, c_void};
 
 use crate::{
-    constants::Epoch,
     err::{secstatus_to_res, Res},
+    nss_prelude::*,
+    prio::PRFileDesc,
+    Epoch,
 };
 
-include!(concat!(env!("OUT_DIR"), "/nss_ssl.rs"));
-#[expect(non_snake_case, reason = "OK here.")]
+mod nss_ssl {
+    #![allow(
+        dead_code,
+        non_upper_case_globals,
+        non_snake_case,
+        nonstandard_style,
+        clippy::all,
+        clippy::nursery,
+        clippy::pedantic,
+        clippy::restriction,
+        reason = "For included bindgen code."
+    )]
+    use crate::{
+        err::PRErrorCode,
+        nss_prelude::*,
+        p11::{CERTCertificateStr, HpkeAeadId, HpkeKdfId, PK11SymKeyStr, SECKEYPrivateKeyStr},
+        prio::{PRFileDesc, PRFileInfo, PRFileInfo64, PRIOVec},
+        time::PRTime,
+    };
+
+    include!(concat!(env!("OUT_DIR"), "/nss_ssl.rs"));
+}
+pub use nss_ssl::*;
+
+#[expect(non_snake_case, unused, reason = "OK here.")]
 mod SSLOption {
     include!(concat!(env!("OUT_DIR"), "/nss_sslopt.rs"));
 }
-
-pub enum PRFileDesc {}
 
 // Remap some constants.
 #[expect(non_upper_case_globals, reason = "OK here.")]

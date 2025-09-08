@@ -11,8 +11,10 @@
 )]
 
 use std::{
-    collections::HashMap,
-    env, fs,
+    collections::{HashMap, HashSet},
+    env,
+    error::Error,
+    fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -77,7 +79,7 @@ fn setup_clang() {
         PathBuf::from(dir.trim())
     } else {
         eprintln!("warning: Building without a gecko setup is not likely to work.");
-        eprintln!("         A working libclang is needed to build neqo.");
+        eprintln!("         A working libclang is needed to build nss-gk-api.");
         eprintln!("         Either LIBCLANG_PATH or MOZBUILD_STATE_PATH needs to be set.");
         eprintln!();
         eprintln!("    We recommend checking out https://github.com/mozilla/gecko-dev");
@@ -92,6 +94,49 @@ fn setup_clang() {
     } else {
         println!("warning: LIBCLANG_PATH isn't set; maybe run ./mach bootstrap with gecko");
     }
+}
+
+fn nss_dir() -> String {
+    let dir = env::var("NSS_DIR").map_or_else(
+        |_| {
+            let out_dir = env::var("OUT_DIR").unwrap();
+            let dir = Path::new(&out_dir).join("nss");
+            if !dir.exists() {
+                Command::new("hg")
+                    .args([
+                        "clone",
+                        "https://hg.mozilla.org/projects/nss",
+                        dir.to_str().unwrap(),
+                    ])
+                    .status()
+                    .expect("can't clone nss");
+            }
+            let nspr_dir = Path::new(&out_dir).join("nspr");
+            if !nspr_dir.exists() {
+                Command::new("hg")
+                    .args([
+                        "clone",
+                        "https://hg.mozilla.org/projects/nspr",
+                        nspr_dir.to_str().unwrap(),
+                    ])
+                    .status()
+                    .expect("can't clone nspr");
+            }
+            dir
+        },
+        |dir| {
+            let path = PathBuf::from(dir.trim());
+            assert!(
+                !path.is_relative(),
+                "The NSS_DIR environment variable is expected to be an absolute path."
+            );
+            path
+        },
+    );
+    assert!(dir.is_dir(), "NSS_DIR {} doesn't exist", dir.display());
+    // Note that this returns a relative path because UNC
+    // paths on windows cause certain tools to explode.
+    dir.to_string_lossy().to_string()
 }
 
 fn get_bash() -> PathBuf {
@@ -297,14 +342,16 @@ fn build_bindings(base: &str, bindings: &Bindings, flags: &[String], gecko: bool
         .expect("couldn't write bindings");
 }
 
-fn pkg_config() -> Vec<String> {
+fn pkg_config() -> Result<Vec<String>, Box<dyn Error>> {
     let modversion = Command::new("pkg-config")
         .args(["--modversion", "nss"])
-        .output()
-        .expect("pkg-config reports NSS as absent")
+        .output()?
         .stdout;
-    let modversion = String::from_utf8(modversion).expect("non-UTF8 from pkg-config");
+
+    let modversion = String::from_utf8(modversion)?;
+
     let modversion = modversion.trim();
+
     // The NSS version number does not follow semver numbering, because it omits the patch version
     // when that's 0. Deal with that.
     let modversion_for_cmp = if modversion.chars().filter(|c| *c == '.').count() == 1 {
@@ -312,60 +359,64 @@ fn pkg_config() -> Vec<String> {
     } else {
         modversion.to_owned()
     };
-    let modversion_for_cmp =
-        Version::parse(&modversion_for_cmp).expect("NSS version not in semver format");
+
+    let modversion_for_cmp = Version::parse(&modversion_for_cmp)?;
+
     let version_req = VersionReq::parse(&format!(">={}", MINIMUM_NSS_VERSION.trim())).unwrap();
+
     assert!(
         version_req.matches(&modversion_for_cmp),
-        "neqo has NSS version requirement {version_req}, found {modversion}"
+        "neqo has NSS version requirement {version_req}, found {modversion}",
     );
 
     let cfg = Command::new("pkg-config")
         .args(["--cflags", "--libs", "nss"])
-        .output()
-        .expect("NSS flags not returned by pkg-config")
+        .output()?
         .stdout;
-    let cfg_str = String::from_utf8(cfg).expect("non-UTF8 from pkg-config");
+
+    let cfg_str = String::from_utf8(cfg)?;
 
     let mut flags: Vec<String> = Vec::new();
+
     for f in cfg_str.split(' ') {
         if let Some(include) = f.strip_prefix("-I") {
             flags.push(String::from(f));
+
             println!("cargo:include={include}");
         } else if let Some(path) = f.strip_prefix("-L") {
             println!("cargo:rustc-link-search=native={path}");
         } else if let Some(lib) = f.strip_prefix("-l") {
             println!("cargo:rustc-link-lib=dylib={lib}");
         } else {
-            println!("Warning: Unknown flag from pkg-config: {f}");
+            println!("cargo:warning=Unknown flag from pkg-config: {f}");
         }
     }
 
-    flags
+    Ok(flags)
 }
 
-fn setup_standalone(nss: &str) -> Vec<String> {
+fn setup_standalone(nss_dir: String) -> Vec<String> {
     setup_clang();
 
-    println!("cargo:rerun-if-env-changed=NSS_DIR");
-    let nss = PathBuf::from(nss);
-    assert!(
-        !nss.is_relative(),
-        "The NSS_DIR environment variable is expected to be an absolute path."
-    );
+    let nss = PathBuf::from(nss_dir);
+    println!("cargo:rerun-if-env-changed={}", nss.display());
 
     // $NSS_DIR/../dist/
     let nssdist = nss.parent().unwrap().join("dist");
-    println!("cargo:rerun-if-env-changed=NSS_TARGET");
-    let nsstarget = env::var("NSS_TARGET")
-        .unwrap_or_else(|_| fs::read_to_string(nssdist.join("latest")).unwrap());
+    println!("cargo:rerun-if-env-changed={}", nssdist.display());
 
     // If NSS_PREBUILT is set, we assume that the NSS libraries are already built.
+    let nsstarget;
     if env::var("NSS_PREBUILT").is_err() {
+        // If NSS is not already built, we can't read the build mode of the last build
+        nsstarget = env::var("NSS_TARGET").unwrap_or_else(|_| String::from("Release"));
         build_nss(nss, &nsstarget);
+    } else {
+        nsstarget = env::var("NSS_TARGET")
+            .unwrap_or_else(|_| fs::read_to_string(nssdist.join("latest")).unwrap());
     }
-
     let nsstarget = nssdist.join(nsstarget.trim());
+
     let includes = get_includes(&nsstarget, &nssdist);
 
     let nsslibdir = nsstarget.join("lib");
@@ -465,20 +516,62 @@ fn setup_for_gecko() -> Vec<String> {
     unreachable!()
 }
 
+fn process_config(config: &mut HashMap<String, Bindings>) {
+    let mut excludes = HashMap::new();
+    for header in config.keys().cloned() {
+        // Collect the list of types, functions, and variables configured
+        // for generation in any other configured header, and add it to the list
+        // of items excluded from generation in this header. This ensures that
+        // each item only appears in one bindings module, which prevents some
+        // type conflicts. (However, it does mean that appropriate `use`
+        // declarations must be added for the generated modules.)
+        excludes.insert(
+            header.clone(),
+            config
+                .iter()
+                .flat_map(|(h, b)| {
+                    if *h == header {
+                        vec![]
+                    } else {
+                        vec![&b.types, &b.functions, &b.variables]
+                    }
+                    .into_iter()
+                    .flat_map(|v| v.iter())
+                    .cloned()
+                })
+                .collect::<HashSet<String>>(),
+        );
+    }
+
+    for (header, excludes) in excludes {
+        config
+            .get_mut(&header)
+            .expect("key disappeared from config?")
+            .exclude
+            .extend(excludes.into_iter());
+    }
+}
+
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(nss_nodb)");
+
+    if env::consts::OS == "windows" {
+        println!("cargo:rustc-link-lib=advapi32");
+    }
+
     let flags = if cfg!(feature = "gecko") {
         setup_for_gecko()
     } else if let Ok(nss_dir) = env::var("NSS_DIR") {
-        setup_standalone(nss_dir.trim())
+        setup_standalone(nss_dir.trim().to_string())
     } else {
-        pkg_config()
+        pkg_config().unwrap_or_else(|_| setup_standalone(nss_dir()))
     };
 
     let config_file = PathBuf::from(BINDINGS_DIR).join(BINDINGS_CONFIG);
     println!("cargo:rerun-if-changed={}", config_file.to_str().unwrap());
     let config = fs::read_to_string(config_file).expect("unable to read binding configuration");
-    let config: HashMap<String, Bindings> = ::toml::from_str(&config).unwrap();
+    let mut config: HashMap<String, Bindings> = ::toml::from_str(&config).unwrap();
+    process_config(&mut config);
 
     for (k, v) in &config {
         build_bindings(k, v, &flags[..], cfg!(feature = "gecko"));

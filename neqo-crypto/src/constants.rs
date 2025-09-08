@@ -4,6 +4,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::convert::TryFrom;
+
 use enum_map::Enum;
 use strum::FromRepr;
 

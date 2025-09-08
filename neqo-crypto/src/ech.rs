@@ -5,21 +5,22 @@
 // except according to those terms.
 
 use std::{
+    convert::TryFrom as _,
     ffi::CString,
     os::raw::{c_char, c_uint},
     ptr::{addr_of_mut, null_mut},
 };
 
-use neqo_common::qtrace;
+use log::trace;
+use pkcs11_bindings::{CKF_DERIVE, CKM_EC_KEY_PAIR_GEN};
 
 use crate::{
     err::{ssl::SSL_ERROR_ECH_RETRY_WITH_ECH, Error, Res},
     experimental_api, null_safe_slice,
-    p11::{
-        self, Item, PrivateKey, PublicKey, SECITEM_FreeItem, SECItem, SECKEYPrivateKey,
-        SECKEYPublicKey, Slot,
-    },
-    ssl::{PRBool, PRFileDesc},
+    p11::{self, PrivateKey, PublicKey, SECKEYPrivateKey, SECKEYPublicKey, Slot},
+    prio::PRFileDesc,
+    prtypes::PRBool,
+    SECItem, SECItemBorrowed, SECItemMut,
 };
 pub use crate::{
     p11::{HpkeAeadId as AeadId, HpkeKdfId as KdfId, HpkeKemId as KemId},
@@ -70,15 +71,13 @@ pub fn convert_ech_error(fd: *mut PRFileDesc, err: Error) -> Error {
         ..
     } = &err
     {
-        let mut item = Item::make_empty();
-        if unsafe { SSL_GetEchRetryConfigs(fd, &mut item).is_err() } {
+        let mut item = SECItemMut::make_empty();
+        if unsafe { SSL_GetEchRetryConfigs(fd, item.as_mut()).is_err() } {
             return Error::Internal;
         }
         let buf = unsafe {
-            let slc = null_safe_slice(item.data, item.len);
-            let buf = Vec::from(slc);
-            SECITEM_FreeItem(&mut item, PRBool::from(false));
-            buf
+            let slc = null_safe_slice(item.as_ref().data, item.as_ref().len as usize);
+            Vec::from(slc)
         };
         Error::EchRetry(buf)
     } else {
@@ -107,19 +106,19 @@ pub fn generate_keys() -> Res<(PrivateKey, PublicKey)> {
     params.extend_from_slice(oid_slc);
 
     let mut public_ptr: *mut SECKEYPublicKey = null_mut();
-    let mut param_item = Item::wrap(&params)?;
+    let mut param_item = SECItemBorrowed::wrap(&params)?;
 
     // If we have tracing on, try to ensure that key data can be read.
     let insensitive_secret_ptr = if log::log_enabled!(log::Level::Trace) {
         unsafe {
             p11::PK11_GenerateKeyPairWithOpFlags(
                 *slot,
-                p11::CK_MECHANISM_TYPE::from(p11::CKM_EC_KEY_PAIR_GEN),
+                p11::CK_MECHANISM_TYPE::from(CKM_EC_KEY_PAIR_GEN),
                 addr_of_mut!(param_item).cast(),
                 &mut public_ptr,
                 p11::PK11_ATTR_SESSION | p11::PK11_ATTR_INSENSITIVE | p11::PK11_ATTR_PUBLIC,
-                p11::CK_FLAGS::from(p11::CKF_DERIVE),
-                p11::CK_FLAGS::from(p11::CKF_DERIVE),
+                p11::CK_FLAGS::from(CKF_DERIVE),
+                p11::CK_FLAGS::from(CKF_DERIVE),
                 null_mut(),
             )
         }
@@ -131,12 +130,12 @@ pub fn generate_keys() -> Res<(PrivateKey, PublicKey)> {
         unsafe {
             p11::PK11_GenerateKeyPairWithOpFlags(
                 *slot,
-                p11::CK_MECHANISM_TYPE::from(p11::CKM_EC_KEY_PAIR_GEN),
+                p11::CK_MECHANISM_TYPE::from(CKM_EC_KEY_PAIR_GEN),
                 addr_of_mut!(param_item).cast(),
                 &mut public_ptr,
                 p11::PK11_ATTR_SESSION | p11::PK11_ATTR_SENSITIVE | p11::PK11_ATTR_PRIVATE,
-                p11::CK_FLAGS::from(p11::CKF_DERIVE),
-                p11::CK_FLAGS::from(p11::CKF_DERIVE),
+                p11::CK_FLAGS::from(CKF_DERIVE),
+                p11::CK_FLAGS::from(CKF_DERIVE),
                 null_mut(),
             )
         }
@@ -144,9 +143,9 @@ pub fn generate_keys() -> Res<(PrivateKey, PublicKey)> {
         insensitive_secret_ptr
     };
     assert_eq!(secret_ptr.is_null(), public_ptr.is_null());
-    let sk = PrivateKey::from_ptr(secret_ptr)?;
-    let pk = PublicKey::from_ptr(public_ptr)?;
-    qtrace!("Generated key pair: sk={sk:?} pk={pk:?}");
+    let sk = unsafe { PrivateKey::from_ptr(secret_ptr) }?;
+    let pk = unsafe { PublicKey::from_ptr(public_ptr) }?;
+    trace!("Generated key pair: sk={sk:?} pk={pk:?}");
     Ok((sk, pk))
 }
 

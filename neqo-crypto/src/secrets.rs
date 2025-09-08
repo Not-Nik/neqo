@@ -4,10 +4,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::{mem, os::raw::c_void, pin::Pin};
+#![allow(clippy::unwrap_used)] // Let's assume the use of `unwrap` was checked when the use of `unsafe` was reviewed.
+
+use std::{convert::TryFrom as _, mem, os::raw::c_void, pin::Pin};
 
 use enum_map::EnumMap;
-use neqo_common::qdebug;
+use log::debug;
 use strum::FromRepr;
 
 use crate::{
@@ -15,7 +17,8 @@ use crate::{
     constants::Epoch,
     err::Res,
     p11::{PK11SymKey, PK11_ReferenceSymKey, SymKey},
-    ssl::{PRFileDesc, SSLSecretCallback, SSLSecretDirection},
+    prio::PRFileDesc,
+    ssl::{SSLSecretCallback, SSLSecretDirection},
 };
 
 experimental_api!(SSL_SecretCallback(
@@ -93,12 +96,14 @@ impl Secrets {
 
     fn put_raw(&mut self, epoch: Epoch, dir: SSLSecretDirection::Type, key_ptr: *mut PK11SymKey) {
         let key_ptr = unsafe { PK11_ReferenceSymKey(key_ptr) };
-        let key = SymKey::from_ptr(key_ptr).expect("NSS shouldn't be passing out NULL secrets");
+        let key = unsafe {
+            SymKey::from_ptr(key_ptr).expect("NSS shouldn't be passing out NULL secrets")
+        };
         self.put(SecretDirection::from(dir), epoch, key);
     }
 
     fn put(&mut self, dir: SecretDirection, epoch: Epoch, key: SymKey) {
-        qdebug!("{dir:?} secret available for {epoch:?}: {key:?}");
+        debug!("{dir:?} secret available for {epoch:?}: {key:?}");
         let keys = match dir {
             SecretDirection::Read => &mut self.r,
             SecretDirection::Write => &mut self.w,

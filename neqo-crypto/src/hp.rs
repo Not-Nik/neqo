@@ -6,11 +6,14 @@
 
 use std::{
     cell::RefCell,
+    convert::TryFrom as _,
     fmt::{self, Debug},
     os::raw::{c_char, c_int, c_uint},
-    ptr::{addr_of_mut, null, null_mut},
+    ptr::{null, null_mut},
     rc::Rc,
 };
+
+use pkcs11_bindings::{CKA_ENCRYPT, CKM_AES_ECB, CKM_CHACHA20};
 
 use crate::{
     constants::{
@@ -19,10 +22,10 @@ use crate::{
     },
     err::{secstatus_to_res, Error, Res},
     p11::{
-        Context, Item, PK11SymKey, PK11_CipherOp, PK11_CreateContextBySymKey, PK11_Encrypt,
-        PK11_GetBlockSize, SymKey, CKA_ENCRYPT, CKM_AES_ECB, CKM_CHACHA20, CK_ATTRIBUTE_TYPE,
-        CK_CHACHA20_PARAMS, CK_MECHANISM_TYPE,
+        Context, PK11SymKey, PK11_CipherOp, PK11_CreateContextBySymKey, PK11_Encrypt,
+        PK11_GetBlockSize, SymKey, CK_ATTRIBUTE_TYPE, CK_CHACHA20_PARAMS, CK_MECHANISM_TYPE,
     },
+    SECItemBorrowed,
 };
 
 experimental_api!(SSL_HkdfExpandLabelWithMech(
@@ -97,7 +100,7 @@ impl Key {
                 &mut secret,
             )
         }?;
-        let key = SymKey::from_ptr(secret).or(Err(Error::Hkdf))?;
+        let key = unsafe { SymKey::from_ptr(secret).or(Err(Error::Hkdf)) }?;
 
         let res = match cipher {
             TLS_AES_128_GCM_SHA256 | TLS_AES_256_GCM_SHA384 => {
@@ -106,10 +109,11 @@ impl Key {
                         mech,
                         CK_ATTRIBUTE_TYPE::from(CKA_ENCRYPT),
                         *key,
-                        &Item::wrap(&ZERO[..0])?, // Borrow a zero-length slice of ZERO.
+                        SECItemBorrowed::wrap(&ZERO[..0])?.as_ref(), /* Borrow a zero-length
+                                                                      * slice of ZERO. */
                     )
                 };
-                let context = Context::from_ptr(context_ptr).or(Err(Error::CipherInit))?;
+                let context = unsafe { Context::from_ptr(context_ptr).or(Err(Error::CipherInit)) }?;
                 Self::Aes(Rc::new(RefCell::new(context)))
             }
             TLS_CHACHA20_POLY1305_SHA256 => Self::Chacha(key),
@@ -169,12 +173,12 @@ impl Key {
                     ulNonceBits: 96,
                 };
                 let mut output_len: c_uint = 0;
-                let mut param_item = Item::wrap_struct(&params)?;
+                let mut param_item = SECItemBorrowed::wrap_struct(&params)?;
                 secstatus_to_res(unsafe {
                     PK11_Encrypt(
                         **key,
                         CK_MECHANISM_TYPE::from(CKM_CHACHA20),
-                        addr_of_mut!(param_item),
+                        std::ptr::from_mut(param_item.as_mut()),
                         output[..].as_mut_ptr(),
                         &mut output_len,
                         c_uint::try_from(output.len())?,

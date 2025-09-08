@@ -5,7 +5,6 @@
 // except according to those terms.
 
 use std::{
-    ops::Deref,
     os::raw::c_uint,
     ptr::null_mut,
     time::{Duration, Instant},
@@ -13,7 +12,7 @@ use std::{
 
 use crate::{
     err::Res,
-    ssl::PRFileDesc,
+    prio::PRFileDesc,
     time::{Interval, PRTime, Time},
 };
 
@@ -69,7 +68,7 @@ impl AntiReplay {
         }?;
 
         Ok(Self {
-            ctx: AntiReplayContext::from_ptr(ctx)?,
+            ctx: unsafe { AntiReplayContext::from_ptr(ctx) }?,
         })
     }
 

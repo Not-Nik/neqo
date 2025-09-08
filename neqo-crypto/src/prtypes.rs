@@ -4,20 +4,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(clippy::upper_case_acronyms)]
 #![allow(
     dead_code,
     non_upper_case_globals,
     non_snake_case,
-    clippy::all,
-    clippy::nursery,
-    clippy::pedantic,
-    clippy::restriction,
-    reason = "For included bindgen code."
+    clippy::cognitive_complexity,
+    clippy::empty_enum,
+    clippy::too_many_lines,
+    unknown_lints,
+    clippy::borrow_as_ptr
 )]
 
-use crate::prtypes::{
-    PRBool, PRInt16, PRInt32, PRInt64, PRIntn, PROffset32, PROffset64, PRSize, PRStatus, PRUint16,
-    PRUint32, PRUint64, PRUint8, PRUintn,
-};
+pub use PRStatus_PR_FAILURE as PR_FAILURE;
+pub use PRStatus_PR_SUCCESS as PR_SUCCESS;
 
-include!(concat!(env!("OUT_DIR"), "/nspr_io.rs"));
+include!(concat!(env!("OUT_DIR"), "/nspr_types.rs"));

@@ -21,7 +21,7 @@ description = "Neqo, the Mozilla implementation of QUIC in Rust."
 keywords = ["quic", "http3", "neqo", "mozilla", "ietf", "firefox"]
 categories = ["network-programming", "web-programming"]
 readme = "README.md"
-version = "0.15.0"
+version = "0.16.0"
 # Keep in sync with `.rustfmt.toml` `edition`.
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -46,6 +46,8 @@ strum = { version = "0.27", default-features = false, features = ["derive"] }
 thiserror = { version = "2.0.12", default-features = false }
 url = { version = "2.5", default-features = false, features = ["std"] }
 windows = { version = "0.58", default-features = false }
+pkcs11-bindings = ">= 0.1.3"
+once_cell = "1"
 
 [workspace.lints.rust]
 absolute_paths_not_starting_with_crate = "warn"
@@ -72,7 +74,7 @@ cargo = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 allow_attributes = "warn"
-allow_attributes_without_reason = "warn"
+allow_attributes_without_reason = "allow"
 cfg_not_test = "warn"
 clone_on_ref_ptr = "warn"
 create_dir = "warn"
