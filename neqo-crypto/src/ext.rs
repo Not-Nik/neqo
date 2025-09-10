@@ -11,6 +11,7 @@
 
 use std::{
     cell::RefCell,
+    convert::TryFrom as _,
     fmt::{self, Debug, Formatter},
     os::raw::{c_uint, c_void},
     pin::Pin,
@@ -22,10 +23,13 @@ use crate::{
     constants::{Extension, HandshakeMessage, TLS_HS_CLIENT_HELLO, TLS_HS_ENCRYPTED_EXTENSIONS},
     err::Res,
     null_safe_slice,
+    prio::PRFileDesc,
+    prtypes::PRBool,
     ssl::{
-        PRBool, PRFileDesc, SECFailure, SECStatus, SECSuccess, SSLAlertDescription,
-        SSLExtensionHandler, SSLExtensionWriter, SSLHandshakeType,
+        SECFailure, SECSuccess, SSLAlertDescription, SSLExtensionHandler, SSLExtensionWriter,
+        SSLHandshakeType,
     },
+    SECStatus,
 };
 
 experimental_api!(SSL_InstallExtensionHooks(

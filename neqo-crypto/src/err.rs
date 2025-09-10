@@ -6,7 +6,10 @@
 
 use std::{os::raw::c_char, str::Utf8Error};
 
-use crate::ssl::{SECStatus, SECSuccess};
+use crate::{
+    nss_prelude::*,
+    prtypes::{PRInt32, PRUint32},
+};
 
 include!(concat!(env!("OUT_DIR"), "/nspr_error.rs"));
 #[expect(non_snake_case, dead_code, reason = "Code is bindgen-generated.")]
@@ -54,6 +57,10 @@ pub type Res<T> = Result<T, Error>;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Error)]
 pub enum Error {
+    #[error("AEAD error")]
+    Aead,
+    #[error("Aead truncated")]
+    AeadTruncated,
     #[error("Certificate decoding error")]
     CertificateDecoding,
     #[error("Certificate encoding error")]
@@ -78,6 +85,8 @@ pub enum Error {
     InvalidEpoch,
     #[error("Invalid certificate compression ID")]
     InvalidCertificateCompressionID,
+    #[error("Invalid input")]
+    InvalidInput,
     #[error("Mixed handshake method")]
     MixedHandshakeMethod,
     #[error("No data available")]
@@ -96,6 +105,10 @@ pub enum Error {
     TimeTravel,
     #[error("Unsupported cipher")]
     UnsupportedCipher,
+    #[error("Unsupported curve")]
+    UnsupportedCurve,
+    #[error("Unsupported hash")]
+    UnsupportedHash,
     #[error("Unsupported version")]
     UnsupportedVersion,
 }
@@ -147,19 +160,60 @@ where
     }
 }
 
-pub fn secstatus_to_res(rv: SECStatus) -> Res<()> {
-    if rv == SECSuccess {
-        Ok(())
-    } else {
-        Err(Error::last_nss_error())
-    }
-}
-
 pub const fn is_blocked(result: &Res<()>) -> bool {
     match result {
         Err(Error::Nss { code, .. }) => *code == nspr::PR_WOULD_BLOCK_ERROR,
         _ => false,
     }
+}
+
+pub trait IntoResult {
+    /// The `Ok` type for the result.
+    type Ok;
+
+    /// Unsafe in our implementors because they take a pointer and have no way
+    /// to ensure that the pointer is valid. An invalid pointer could cause UB
+    /// in `impl Drop for Scoped`.
+    unsafe fn into_result(self) -> Result<Self::Ok, Error>;
+}
+
+pub unsafe fn into_result<P>(ptr: *mut P) -> Result<*mut P, Error> {
+    if ptr.is_null() {
+        Err(Error::last_nss_error())
+    } else {
+        Ok(ptr)
+    }
+}
+
+// This can be used to implement `IntoResult` for pointer types that do not make
+// sense as smart pointers. For smart pointers use `scoped_ptr!`.
+macro_rules! impl_into_result {
+    ($pointer:ty) => {
+        impl $crate::err::IntoResult for *mut $pointer {
+            type Ok = *mut $pointer;
+
+            unsafe fn into_result(self) -> Result<Self::Ok, $crate::err::Error> {
+                $crate::err::into_result(self)
+            }
+        }
+    };
+}
+
+impl IntoResult for SECStatus {
+    type Ok = ();
+
+    unsafe fn into_result(self) -> Result<(), Error> {
+        if self == SECSuccess {
+            Ok(())
+        } else {
+            Err(Error::last_nss_error())
+        }
+    }
+}
+
+pub fn secstatus_to_res(code: SECStatus) -> Res<()> {
+    // Unsafe in the trait, but this impl should be safe.
+    unsafe { SECStatus::into_result(code) }
 }
 
 #[cfg(test)]

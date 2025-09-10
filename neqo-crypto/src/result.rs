@@ -4,6 +4,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use crate::nss_prelude::SECSuccess;
+use crate::SECStatus;
 use crate::{
     err::{nspr, Error, PR_ErrorToName, PR_ErrorToString, PR_GetError, Res, PR_LANGUAGE_I_DEFAULT},
     ssl,
@@ -16,7 +18,7 @@ pub fn result(rv: ssl::SECStatus) -> Res<()> {
     Ok(())
 }
 
-pub fn result_or_blocked(rv: ssl::SECStatus) -> Res<bool> {
+pub fn result_or_blocked(rv: SECStatus) -> Res<bool> {
     result_helper(rv, true)
 }
 
@@ -33,8 +35,8 @@ where
     }
 }
 
-fn result_helper(rv: ssl::SECStatus, allow_blocked: bool) -> Res<bool> {
-    if rv == ssl::_SECStatus_SECSuccess {
+fn result_helper(rv: SECStatus, allow_blocked: bool) -> Res<bool> {
+    if rv == SECSuccess {
         return Ok(false);
     }
 

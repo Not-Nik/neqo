@@ -4,7 +4,4 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#include "cert.h"
-#include "keyhi.h"
-#include "pk11pub.h"
-#include "pkcs11t.h"
+#include "prtypes.h"
