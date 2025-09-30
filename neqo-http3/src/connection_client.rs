@@ -18,13 +18,13 @@ use neqo_common::{
     event::Provider as EventProvider, hex, hex_with_len, qdebug, qinfo, qlog::Qlog, qtrace, qwarn,
     Datagram, Decoder, Encoder, Header, MessageType, Role,
 };
-use neqo_crypto::{agent::CertificateInfo, AuthenticationStatus, ResumptionToken, SecretAgentInfo};
 use neqo_qpack::Stats as QpackStats;
 use neqo_transport::{
     recv_stream, send_stream, streams::SendOrder, AppError, Connection, ConnectionEvent,
     ConnectionId, ConnectionIdGenerator, DatagramTracking, Output, OutputBatch,
     Stats as TransportStats, StreamId, StreamType, Version, ZeroRttState,
 };
+use nss_rs::{agent::CertificateInfo, AuthenticationStatus, ResumptionToken, SecretAgentInfo};
 
 use crate::{
     client_events::{Http3ClientEvent, Http3ClientEvents},
@@ -1363,12 +1363,12 @@ mod tests {
     use std::time::Duration;
 
     use neqo_common::{event::Provider as _, qtrace, Datagram, Decoder, Encoder};
-    use neqo_crypto::{AllowZeroRtt, AntiReplay, ResumptionToken};
     use neqo_qpack as qpack;
     use neqo_transport::{
         CloseReason, ConnectionEvent, ConnectionParameters, Output, State, StreamId, StreamType,
         Version, INITIAL_RECV_WINDOW_SIZE, MIN_INITIAL_PACKET_SIZE,
     };
+    use nss_rs::{AllowZeroRtt, AntiReplay, ResumptionToken};
     use test_fixture::{
         anti_replay, default_server_h3, fixture_init, new_server, now,
         CountingConnectionIdGenerator, DEFAULT_ADDR, DEFAULT_ALPN_H3, DEFAULT_KEYS,

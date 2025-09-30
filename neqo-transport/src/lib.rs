@@ -7,7 +7,7 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 use neqo_common::qwarn;
-use neqo_crypto::Error as CryptoError;
+use nss_rs::Error as CryptoError;
 use thiserror::Error;
 
 mod ackrate;

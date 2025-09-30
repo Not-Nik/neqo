@@ -16,7 +16,7 @@ use std::{
 };
 
 use neqo_common::{hex, hex_with_len, qdebug, qinfo, Buffer, Decoder, Encoder};
-use neqo_crypto::{random, randomize};
+use nss_rs::{random, randomize};
 use smallvec::{smallvec, SmallVec};
 
 use crate::{frame::FrameType, packet, recovery, stats::FrameStats, Error, Res};

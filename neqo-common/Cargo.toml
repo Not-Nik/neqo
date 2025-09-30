@@ -29,12 +29,12 @@ windows = { workspace = true , features = ["Win32_Media"] }
 
 [dev-dependencies]
 criterion = { version = "0.6", default-features = false, features = ["cargo_bench_support"] }
-neqo-crypto = { path = "../neqo-crypto" }
+nss-rs = { workspace = true }
 test-fixture = { path = "../test-fixture" }
 regex = { workspace = true }
 
 [features]
-bench = ["neqo-crypto/bench", "test-fixture/bench"]
+bench = ["nss-rs/bench", "test-fixture/bench"]
 build-fuzzing-corpus = ["hex/alloc"]
 ci = []
 test-fixture = []

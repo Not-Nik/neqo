@@ -15,7 +15,7 @@ use std::{
 use neqo_common::{
     hex, qdebug, qinfo, qlog::Qlog, qtrace, qwarn, Buffer, DatagramBatch, Encoder, Tos,
 };
-use neqo_crypto::random;
+use nss_rs::random;
 
 use crate::{
     ackrate::{AckRate, PeerAckDelay},

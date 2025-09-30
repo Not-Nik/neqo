@@ -26,12 +26,12 @@ use neqo_common::{
     qlog::{new_trace, Qlog},
     qtrace, Datagram, Decoder, Ecn, Role,
 };
-use neqo_crypto::{init_db, random, AllowZeroRtt, AntiReplay, AuthenticationStatus};
 use neqo_http3::{Http3Client, Http3ClientEvent, Http3Parameters, Http3Server, Http3State};
 use neqo_transport::{
     version, Connection, ConnectionEvent, ConnectionId, ConnectionIdDecoder, ConnectionIdGenerator,
     ConnectionIdRef, ConnectionParameters, State, Version,
 };
+use nss_rs::{init_db, random, AllowZeroRtt, AntiReplay, AuthenticationStatus};
 use qlog::{events::EventImportance, streamer::QlogStreamer};
 
 pub mod assertions;

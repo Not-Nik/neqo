@@ -22,7 +22,7 @@ use neqo_common::{
     event::Provider as _, hex, qdebug, qerror, qinfo, qlog::Qlog, qtrace, qwarn, Datagram, Role,
     Tos,
 };
-use neqo_crypto::{
+use nss_rs::{
     encode_ech_config, AntiReplay, Cipher, PrivateKey, PublicKey, ZeroRttCheckResult,
     ZeroRttChecker,
 };

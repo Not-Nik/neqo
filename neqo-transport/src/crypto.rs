@@ -16,8 +16,8 @@ use std::{
 
 use enum_map::EnumMap;
 use neqo_common::{hex, hex_snip_middle, qdebug, qinfo, qtrace, Buffer, Encoder, Role};
-pub use neqo_crypto::Epoch;
-use neqo_crypto::{
+pub use nss_rs::Epoch;
+use nss_rs::{
     hkdf, hp, random, Aead, AeadTrait as _, Agent, AntiReplay, Cipher, Error as CryptoError,
     HandshakeState, PrivateKey, PublicKey, Record, RecordList, ResumptionToken, SymKey,
     ZeroRttChecker, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256,
