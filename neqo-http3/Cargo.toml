@@ -22,7 +22,7 @@ workspace = true
 enumset = { workspace = true }
 log = { workspace = true }
 neqo-common = { path = "./../neqo-common" }
-neqo-crypto = { path = "./../neqo-crypto" }
+nss-rs = { workspace = true }
 neqo-qpack = { path = "./../neqo-qpack" }
 neqo-transport = { path = "./../neqo-transport" }
 qlog = { workspace = true }
@@ -40,12 +40,12 @@ test-fixture = { path = "../test-fixture" }
 [features]
 bench = [
         "neqo-common/bench",
-        "neqo-crypto/bench",
         "neqo-qpack/bench",
         "neqo-transport/bench",
+        "nss-rs/bench",
         "log/release_max_level_info",
 ]
-disable-encryption = ["neqo-transport/disable-encryption", "neqo-crypto/disable-encryption"]
+disable-encryption = ["neqo-transport/disable-encryption", "nss-rs/disable-encryption"]
 draft-29 = ["neqo-transport/draft-29"]
 
 [package.metadata.cargo-machete]

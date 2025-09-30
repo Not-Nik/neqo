@@ -14,7 +14,7 @@
 use std::ops::Range;
 
 use neqo_common::{hex_with_len, qtrace, Datagram, Decoder, Role};
-use neqo_crypto::{
+use nss_rs::{
     constants::{TLS_AES_128_GCM_SHA256, TLS_VERSION_1_3},
     hkdf, hp, Aead, AeadTrait as _,
 };

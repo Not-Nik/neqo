@@ -25,13 +25,13 @@ use futures::{
     FutureExt as _, TryFutureExt as _,
 };
 use neqo_common::{qdebug, qerror, qinfo, qlog::Qlog, qwarn, Datagram, Role};
-use neqo_crypto::{
-    constants::{TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256},
-    init, Cipher, ResumptionToken,
-};
 use neqo_http3::Header;
 use neqo_transport::{AppError, CloseReason, ConnectionId, OutputBatch, Version};
 use neqo_udp::RecvBuf;
+use nss_rs::{
+    constants::{TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256},
+    init, Cipher, ResumptionToken,
+};
 use rustc_hash::FxHashMap as HashMap;
 use thiserror::Error;
 use tokio::time::Sleep;
@@ -59,11 +59,11 @@ pub enum Error {
     #[error("application error: {0}")]
     Application(AppError),
     #[error(transparent)]
-    Crypto(neqo_crypto::Error),
+    Crypto(nss_rs::Error),
 }
 
-impl From<neqo_crypto::Error> for Error {
-    fn from(err: neqo_crypto::Error) -> Self {
+impl From<nss_rs::Error> for Error {
+    fn from(err: nss_rs::Error) -> Self {
         Self::Crypto(err)
     }
 }

@@ -15,11 +15,11 @@ use std::{
 
 use common::{assert_dscp, connected_server, default_server, generate_ticket};
 use neqo_common::{hex_with_len, qdebug, qtrace, Datagram, Encoder, Role};
-use neqo_crypto::{generate_ech_keys, AeadTrait as _, AuthenticationStatus};
 use neqo_transport::{
     server::ValidateAddress, CloseReason, ConnectionParameters, Error, State, StreamType,
     MIN_INITIAL_PACKET_SIZE,
 };
+use nss_rs::{generate_ech_keys, AeadTrait as _, AuthenticationStatus};
 use test_fixture::{
     assertions, damage_ech_config, datagram, default_client,
     header_protection::{self, decode_initial_header, initial_aead_and_hp},

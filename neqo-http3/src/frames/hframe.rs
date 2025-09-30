@@ -7,8 +7,8 @@
 use std::fmt::{Debug, Write as _};
 
 use neqo_common::{Buffer, Decoder, Encoder};
-use neqo_crypto::random;
 use neqo_transport::StreamId;
+use nss_rs::random;
 
 use crate::{frames::reader::FrameDecoder, settings::HSettings, Error, Priority, PushId, Res};
 

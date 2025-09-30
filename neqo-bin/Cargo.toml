@@ -40,7 +40,7 @@ hex = { workspace = true, features = ["std"] }
 libc = { workspace = true }
 log = { workspace = true }
 neqo-common = { path = "./../neqo-common" }
-neqo-crypto = { path = "./../neqo-crypto" }
+nss-rs = { workspace = true }
 neqo-http3 = { path = "./../neqo-http3" }
 neqo-transport = { path = "./../neqo-transport" }
 neqo-udp = { path = "./../neqo-udp" }

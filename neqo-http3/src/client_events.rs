@@ -7,8 +7,8 @@
 use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use neqo_common::{event::Provider as EventProvider, qtrace, Bytes, Header};
-use neqo_crypto::ResumptionToken;
 use neqo_transport::{AppError, StreamId, StreamType};
+use nss_rs::ResumptionToken;
 
 use crate::{
     connection::Http3State,
