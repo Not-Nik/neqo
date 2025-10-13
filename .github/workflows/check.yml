@@ -110,7 +110,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - id: nss-version
-        run: echo "minimum=$(cat neqo-crypto/min_version.txt)" >> "$GITHUB_OUTPUT"
+        run: echo "minimum=$(curl https://raw.githubusercontent.com/mozilla/nss-rs/refs/heads/main/min_version.txt)" >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/nss
         with:
@@ -192,7 +192,7 @@ jobs:
         with:
           persist-credentials: false
       - id: nss-version
-        run: echo "minimum=$(cat neqo-crypto/min_version.txt)" >> "$GITHUB_OUTPUT"
+        run: echo "minimum=$(curl https://raw.githubusercontent.com/mozilla/nss-rs/refs/heads/main/min_version.txt)" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/check-android
         with:
           target: ${{ matrix.target }}
