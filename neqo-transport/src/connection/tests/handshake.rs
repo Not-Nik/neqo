@@ -12,9 +12,7 @@ use std::{
 };
 
 use neqo_common::{event::Provider as _, qdebug, Datagram};
-use neqo_crypto::{
-    constants::TLS_CHACHA20_POLY1305_SHA256, generate_ech_keys, AuthenticationStatus,
-};
+use nss_rs::{constants::TLS_CHACHA20_POLY1305_SHA256, generate_ech_keys, AuthenticationStatus};
 #[cfg(not(feature = "disable-encryption"))]
 use test_fixture::datagram;
 use test_fixture::{

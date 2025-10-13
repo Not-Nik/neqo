@@ -6,6 +6,7 @@ on:
     branches: ["main"]
   merge_group:
   workflow_dispatch:
+  workflow_call:
 env:
   DUMP_SIMULATION_SEEDS: /tmp/simulation-seeds
 
@@ -50,7 +51,13 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - id: nss-version
-        run: echo "minimum=$(cat neqo-crypto/min_version.txt)" >> "$GITHUB_OUTPUT"
+        run: |
+          pkg_dir=$(cargo metadata --format-version=1 -q \
+            | jq -r '.packages[]
+                     | select(.name=="nss-rs")
+                     | .manifest_path' \
+            | xargs dirname)
+          echo "minimum=$(cat "$pkg_dir/min_version.txt")" >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/nss
         with:
