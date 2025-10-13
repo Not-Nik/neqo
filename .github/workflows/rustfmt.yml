@@ -24,9 +24,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/rust
+      - if: ${{ github.event_name != 'workflow_call' }}
+        uses: ./.github/actions/rust@main
         with:
           version: nightly
           components: rustfmt
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: ${{ github.event_name == 'workflow_call' }}
+        uses: mozilla/neqo/.github/actions/rust@main
+        with:
+          version: nightly
+          components: rustfmt
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - run: cargo fmt --all -- --check

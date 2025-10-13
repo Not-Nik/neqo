@@ -32,7 +32,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/rust
+      - if: ${{ github.event_name != 'workflow_call' }}
+        uses: ./.github/actions/rust
+        with:
+          components: clippy
+          tools: cargo-hack
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: ${{ github.event_name == 'workflow_call' }}
+        uses: mozilla/neqo/.github/actions/rust@main
         with:
           components: clippy
           tools: cargo-hack
@@ -42,6 +50,12 @@ jobs:
         run: echo "minimum=$(curl https://raw.githubusercontent.com/mozilla/nss-rs/refs/heads/main/min_version.txt)" >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/nss
+        if: ${{ github.event_name != 'workflow_call && inputs.minimum-nss-version != '' }}
+        with:
+          minimum-version: ${{ steps.nss-version.outputs.minimum }}
+
+      - uses: mozilla/neqo/.github/actions/nss@main
+        if: ${{ github.event_name == 'workflow_call' && inputs.minimum-nss-version != '' }}
         with:
           minimum-version: ${{ steps.nss-version.outputs.minimum }}
 

@@ -22,13 +22,29 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0 # We need the full history to compare against `main` for semver changes.
-      - uses: ./.github/actions/rust
+
+      - if: ${{ github.event_name != 'workflow_call' }}
+        uses: ./.github/actions/rust
         with:
           tools: cargo-semver-checks
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: ${{ github.event_name == 'workflow_call' }}
+        uses: mozilla/neqo/.github/actions/rust@main
+        with:
+          tools: cargo-semver-checks
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - id: nss-version
         run: echo "minimum=$(curl https://raw.githubusercontent.com/mozilla/nss-rs/refs/heads/main/min_version.txt)" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/nss
+
+      - if: ${{ github.event_name != 'workflow_call' }}
+        uses: ./.github/actions/nss
+        with:
+          minimum-version: ${{ steps.nss-version.outputs.minimum }}
+
+      - if: ${{ github.event_name == 'workflow_call' }}
+        uses: mozilla/neqo/.github/actions/nss@main
         with:
           minimum-version: ${{ steps.nss-version.outputs.minimum }}
 

@@ -43,7 +43,16 @@ runs:
         WD: ${{ inputs.working-directory }}
       run: cd "$WD" && sdkmanager --install "ndk;$NDK_VERSION"
 
-    - uses: ./.github/actions/rust
+    - if: ${{ github.event_name != 'workflow_call' }}
+      uses: ./.github/actions/rust
+      with:
+        version: stable
+        targets: ${{ inputs.target }}
+        tools: cargo-ndk@^4
+        token: ${{ inputs.github-token }}
+
+    - if: ${{ github.event_name == 'workflow_call' }}
+      uses: mozilla/neqo/.github/actions/rust@main
       with:
         version: stable
         targets: ${{ inputs.target }}
@@ -51,7 +60,13 @@ runs:
         token: ${{ inputs.github-token }}
 
     - uses: ./.github/actions/nss
-      if: ${{ inputs.minimum-nss-version != '' }}
+      if: ${{ github.event_name != 'workflow_call && inputs.minimum-nss-version != '' }}
+      with:
+        minimum-version: ${{ inputs.minimum-nss-version }}
+        target: ${{ inputs.target }}
+
+    - uses: mozilla/neqo/.github/actions/nss@main
+      if: ${{ github.event_name == 'workflow_call' && inputs.minimum-nss-version != '' }}
       with:
         minimum-version: ${{ inputs.minimum-nss-version }}
         target: ${{ inputs.target }}

@@ -186,7 +186,7 @@ jobs:
           persist-credentials: false
 
       # TODO: Replace once https://github.com/quic-interop/quic-interop-runner/pull/356 is merged.
-      - uses: ./.github/actions/quic-interop-runner
+      - uses: mozilla/neqo/.github/actions/quic-interop-runner@main
         timeout-minutes: ${{ fromJSON(env.TIMEOUT) }}
         continue-on-error: true
         id: run

@@ -23,7 +23,15 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
+        if: ${{ github.event_name != 'workflow_call' }}
         uses: ./.github/actions/rust
+        with:
+          tools: cargo-hack, cargo-machete
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust
+        if: ${{ github.event_name == 'workflow_call' }}
+        uses: mozilla/neqo/.github/actions/rust@main
         with:
           tools: cargo-hack, cargo-machete
           token: ${{ secrets.GITHUB_TOKEN }}
