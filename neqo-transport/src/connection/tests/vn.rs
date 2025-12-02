@@ -23,7 +23,7 @@ use crate::{
         tests::{connect_rtt_idle_with_modifier, AT_LEAST_PTO},
     },
     frame::FrameType,
-    packet::{self, PACKET_BIT_LONG},
+    packet::{self},
     tparams::{TransportParameter, TransportParameterId::*},
     ConnectionParameters, Error, Stats, Version, MIN_INITIAL_PACKET_SIZE,
 };
@@ -74,8 +74,8 @@ fn create_vn(initial_pkt: &[u8], versions: &[u32]) -> Vec<u8> {
     let src_cid = dec.decode_vec(1).expect("client SCID");
 
     let mut encoder = Encoder::default();
-    encoder.encode_byte(PACKET_BIT_LONG);
-    encoder.encode(&[0; 4]); // Zero version == VN.
+    encoder.encode_byte(packet::BIT_LONG);
+    encoder.encode([0; 4]); // Zero version == VN.
     encoder.encode_vec(1, src_cid);
     encoder.encode_vec(1, dst_cid);
 
@@ -654,7 +654,7 @@ fn client_initial_versions() {
 /// that contain CRYPTO frames to decide the version.  That was not wise.
 #[test]
 fn tls_hello_retry_request() {
-    use neqo_crypto::constants::{TLS_GRP_EC_SECP256R1, TLS_GRP_EC_SECP384R1, TLS_GRP_EC_X25519};
+    use nss_rs::constants::{TLS_GRP_EC_SECP256R1, TLS_GRP_EC_SECP384R1, TLS_GRP_EC_X25519};
 
     let mut client = default_client();
     let mut server = default_server();

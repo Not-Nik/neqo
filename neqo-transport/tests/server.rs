@@ -10,14 +10,14 @@ use std::{cell::RefCell, net::SocketAddr, rc::Rc, time::Duration};
 
 use common::{connect, connected_server, default_server, find_ticket, generate_ticket, new_server};
 use neqo_common::{qtrace, Datagram, Decoder, Encoder, Role};
-use neqo_crypto::{
-    generate_ech_keys, AeadTrait as _, AllowZeroRtt, AuthenticationStatus, ZeroRttCheckResult,
-    ZeroRttChecker,
-};
 use neqo_transport::{
     server::{ConnectionRef, Server, ValidateAddress},
     version, CloseReason, Connection, ConnectionParameters, Error, Output, State, StreamType,
     Version, MIN_INITIAL_PACKET_SIZE,
+};
+use nss_rs::{
+    generate_ech_keys, AeadTrait as _, AllowZeroRtt, AuthenticationStatus, ZeroRttCheckResult,
+    ZeroRttChecker,
 };
 use test_fixture::{
     assertions, datagram, default_client,
@@ -449,7 +449,7 @@ fn bad_client_initial() {
         .unwrap();
 
     let mut payload_enc = Encoder::from(plaintext);
-    payload_enc.encode(&[0x08, 0x02, 0x00, 0x00]); // Add a stream frame.
+    payload_enc.encode([0x08, 0x02, 0x00, 0x00]); // Add a stream frame.
 
     // Make a new header with a 1 byte packet number length.
     let mut header_enc = Encoder::new();
@@ -541,7 +541,7 @@ fn bad_client_initial_connection_close() {
     let (_, pn) = header_protection::remove(&hp, header, payload);
 
     let mut payload_enc = Encoder::with_capacity(MIN_INITIAL_PACKET_SIZE);
-    payload_enc.encode(&[0x1c, 0x01, 0x00, 0x00]); // Add a CONNECTION_CLOSE frame.
+    payload_enc.encode([0x1c, 0x01, 0x00, 0x00]); // Add a CONNECTION_CLOSE frame.
 
     // Make a new header with a 1 byte packet number length.
     let mut header_enc = Encoder::new();

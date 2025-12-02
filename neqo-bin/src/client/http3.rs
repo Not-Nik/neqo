@@ -22,12 +22,12 @@ use std::{
 };
 
 use neqo_common::{event::Provider, hex, qdebug, qerror, qinfo, qwarn, Datagram};
-use neqo_crypto::{AuthenticationStatus, ResumptionToken};
 use neqo_http3::{Error, Http3Client, Http3ClientEvent, Http3Parameters, Http3State, Priority};
 use neqo_transport::{
     AppError, CloseReason, Connection, EmptyConnectionIdGenerator, Error as TransportError,
     OutputBatch, RandomConnectionIdGenerator, StreamId,
 };
+use nss_rs::{AuthenticationStatus, ResumptionToken};
 use rustc_hash::FxHashMap as HashMap;
 use url::Url;
 

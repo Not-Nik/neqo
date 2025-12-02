@@ -18,13 +18,13 @@ use neqo_common::{
     event::Provider as EventProvider, hex, hex_with_len, qdebug, qinfo, qlog::Qlog, qtrace, qwarn,
     Datagram, Decoder, Encoder, Header, MessageType, Role,
 };
-use neqo_crypto::{agent::CertificateInfo, AuthenticationStatus, ResumptionToken, SecretAgentInfo};
 use neqo_qpack::Stats as QpackStats;
 use neqo_transport::{
     recv_stream, send_stream, streams::SendOrder, AppError, Connection, ConnectionEvent,
     ConnectionId, ConnectionIdGenerator, DatagramTracking, Output, OutputBatch,
     Stats as TransportStats, StreamId, StreamType, Version, ZeroRttState,
 };
+use nss_rs::{agent::CertificateInfo, AuthenticationStatus, ResumptionToken, SecretAgentInfo};
 
 use crate::{
     client_events::{Http3ClientEvent, Http3ClientEvents},
@@ -1379,12 +1379,12 @@ mod tests {
     use std::time::Duration;
 
     use neqo_common::{event::Provider as _, qtrace, Datagram, Decoder, Encoder};
-    use neqo_crypto::{AllowZeroRtt, AntiReplay, ResumptionToken};
     use neqo_qpack as qpack;
     use neqo_transport::{
         CloseReason, ConnectionEvent, ConnectionParameters, Output, State, StreamId, StreamType,
         Version, INITIAL_LOCAL_MAX_STREAM_DATA, MIN_INITIAL_PACKET_SIZE,
     };
+    use nss_rs::{AllowZeroRtt, AntiReplay, ResumptionToken};
     use test_fixture::{
         anti_replay, default_server_h3, fixture_init, new_server, now,
         CountingConnectionIdGenerator, DEFAULT_ADDR, DEFAULT_ALPN_H3, DEFAULT_KEYS,
@@ -1397,7 +1397,7 @@ mod tests {
         Http3Parameters, Http3State, Rc, RefCell,
     };
     use crate::{
-        frames::{HFrame, H3_FRAME_TYPE_SETTINGS, H3_RESERVED_FRAME_TYPES},
+        frames::{HFrame, HFrameType},
         qpack_encoder_receiver::EncoderRecvStream,
         settings::{HSetting, HSettingType, H3_RESERVED_SETTINGS},
         Http3Server, Priority, PushId, RecvStream as _,
@@ -4132,7 +4132,7 @@ mod tests {
         hframe.encode(&mut d);
         let d_frame = HFrame::Data { len: 3 };
         d_frame.encode(&mut d);
-        d.encode(&[0x61, 0x62, 0x63]);
+        d.encode([0x61, 0x62, 0x63]);
         server_send_response_and_exchange_packet(
             &mut client,
             &mut server,
@@ -5134,7 +5134,7 @@ mod tests {
         hframe.encode(&mut d);
         let d_frame = HFrame::Data { len: 3 };
         d_frame.encode(&mut d);
-        d.encode(&[0x61, 0x62, 0x63]);
+        d.encode([0x61, 0x62, 0x63]);
         _ = server
             .conn
             .stream_send(request_stream_id, d.as_ref())
@@ -6886,7 +6886,7 @@ mod tests {
 
     #[test]
     fn reserved_frames() {
-        for f in H3_RESERVED_FRAME_TYPES {
+        for f in HFrameType::RESERVED {
             let mut enc = Encoder::default();
             enc.encode_varint(*f);
             test_wrong_frame_on_control_stream(enc.as_ref());
@@ -6907,7 +6907,7 @@ mod tests {
                 .unwrap();
             // Create a settings frame of length 2.
             let mut enc = Encoder::default();
-            enc.encode_varint(H3_FRAME_TYPE_SETTINGS);
+            enc.encode_varint(HFrameType::SETTINGS);
             enc.encode_varint(2_u64);
             // The settings frame contains a reserved settings type and some value (0x1).
             enc.encode_varint(*s);

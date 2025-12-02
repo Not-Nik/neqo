@@ -12,9 +12,7 @@ use std::{
 };
 
 use neqo_common::{event::Provider as _, qdebug, Datagram};
-use neqo_crypto::{
-    constants::TLS_CHACHA20_POLY1305_SHA256, generate_ech_keys, AuthenticationStatus,
-};
+use nss_rs::{constants::TLS_CHACHA20_POLY1305_SHA256, generate_ech_keys, AuthenticationStatus};
 #[cfg(not(feature = "disable-encryption"))]
 use test_fixture::datagram;
 use test_fixture::{
@@ -817,7 +815,7 @@ fn extra_initial_hs() {
     // Feed that undecryptable packet into the client a few times.
     // Do that MAX_SAVED_DATAGRAMS times and each time the client will emit
     // another Initial packet.
-    for _ in 0..crate::saved::MAX_SAVED_DATAGRAMS {
+    for _ in 0..crate::saved::SavedDatagrams::CAPACITY {
         let c_init = match client.process(Some(undecryptable.clone()), now) {
             Output::None => unreachable!(),
             Output::Datagram(c_init) => Some(c_init),

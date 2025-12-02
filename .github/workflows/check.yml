@@ -32,7 +32,7 @@ jobs:
     outputs:
       toolchains: ${{ steps.toolchains.outputs.toolchains }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           sparse-checkout: Cargo.toml
           persist-credentials: false
@@ -97,7 +97,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
 
@@ -109,7 +109,13 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - id: nss-version
-        run: echo "minimum=$(cat neqo-crypto/min_version.txt)" >> "$GITHUB_OUTPUT"
+        run: |
+          pkg_dir=$(cargo metadata --format-version=1 -q \
+            | jq -r '.packages[]
+                     | select(.name=="nss-rs")
+                     | .manifest_path' \
+            | xargs dirname)
+          echo "minimum=$(cat "$pkg_dir/min_version.txt")" >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/nss
         with:
@@ -184,7 +190,7 @@ jobs:
     name: Ensure `Cargo.lock` contains all required dependencies
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust
@@ -204,11 +210,17 @@ jobs:
       matrix:
         target: ['x86_64-linux-android', 'i686-linux-android'] # 'aarch64-linux-android' not currently working
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
       - id: nss-version
-        run: echo "minimum=$(cat neqo-crypto/min_version.txt)" >> "$GITHUB_OUTPUT"
+        run: |
+          pkg_dir=$(cargo metadata --format-version=1 -q \
+            | jq -r '.packages[]
+                     | select(.name=="nss-rs")
+                     | .manifest_path' \
+            | xargs dirname)
+          echo "minimum=$(cat "$pkg_dir/min_version.txt")" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/check-android
         with:
           target: ${{ matrix.target }}
@@ -224,7 +236,7 @@ jobs:
       matrix:
         os: [ freebsd, openbsd, netbsd ] # NSS package on 'solaris' is too old.
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/check-vm

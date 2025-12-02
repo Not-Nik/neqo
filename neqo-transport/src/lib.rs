@@ -7,10 +7,13 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 use neqo_common::qwarn;
-use neqo_crypto::Error as CryptoError;
+use nss_rs::Error as CryptoError;
 use thiserror::Error;
 
 mod ackrate;
+#[cfg(fuzzing)]
+pub mod addr_valid;
+#[cfg(not(fuzzing))]
 mod addr_valid;
 mod cc;
 mod cid;
@@ -49,6 +52,7 @@ pub mod send_stream;
 mod sender;
 pub mod server;
 mod sni;
+mod stateless_reset;
 mod stats;
 pub mod stream_id;
 pub mod streams;
@@ -76,6 +80,7 @@ pub use self::{
     quic_datagrams::DatagramTracking,
     rtt::DEFAULT_INITIAL_RTT,
     sni::find_sni,
+    stateless_reset::Token,
     stats::Stats,
     stream_id::{StreamId, StreamType},
     version::Version,
