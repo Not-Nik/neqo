@@ -10,14 +10,14 @@ use std::{cell::RefCell, net::SocketAddr, rc::Rc, time::Duration};
 
 use common::{connect, connected_server, default_server, find_ticket, generate_ticket, new_server};
 use neqo_common::{qtrace, Datagram, Decoder, Encoder, Role};
-use neqo_crypto::{
-    generate_ech_keys, AeadTrait as _, AllowZeroRtt, AuthenticationStatus, ZeroRttCheckResult,
-    ZeroRttChecker,
-};
 use neqo_transport::{
     server::{ConnectionRef, Server, ValidateAddress},
     version, CloseReason, Connection, ConnectionParameters, Error, Output, State, StreamType,
     Version, MIN_INITIAL_PACKET_SIZE,
+};
+use nss_rs::{
+    generate_ech_keys, AeadTrait as _, AllowZeroRtt, AuthenticationStatus, ZeroRttCheckResult,
+    ZeroRttChecker,
 };
 use test_fixture::{
     assertions, datagram, default_client,

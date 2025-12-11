@@ -14,7 +14,7 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use neqo_common::Decoder;
-use neqo_crypto::{init, randomize};
+use nss_rs::{init, randomize};
 
 fn randomize_buffer(n: usize, mask: u8) -> Vec<u8> {
     let mut buf = vec![0; n];
